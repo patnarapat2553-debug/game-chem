@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ห้องแล็บจับให้ทัน</title>
+<style>
+:root{
+  --bg:#080d0b; --panel:#101d18; --acid2:#39d98a;
+  --danger:#ff3b3b; --gold:#ffd23f; --ink:#eafff0; --dim:#7aa892;
+  padding-top: env(safe-area-inset-top,0px);
+  padding-bottom: env(safe-area-inset-bottom,0px);
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px);}
+*{box-sizing:border-box;}
+body{
+  margin:0; min-height:100vh; background:var(--bg); color:var(--ink); overflow-x:hidden;
+  font-family:-apple-system,'Segoe UI',sans-serif;
+  display:flex; flex-direction:column; align-items:center;
+  background-image:radial-gradient(circle at 50% -10%, #12351f 0%, var(--bg) 55%);
+}
+.wrap{width:100%; max-width:480px; padding:16px 16px 24px;}
+.hud{display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-weight:800; font-size:.95rem;}
+.combo{color:var(--gold);}
+.lives{font-size:1.1rem;}
+
+.field{
+  position:relative; background:var(--panel); border:2px solid #1d4a34; border-radius:18px;
+  height:300px; overflow:hidden; margin-bottom:14px;
+}
+.danger-line{position:absolute; left:0; right:0; bottom:64px; height:2px; background:rgba(255,59,59,.35);}
+.item{
+  position:absolute; left:50%; top:-60px; transform:translateX(-50%);
+  background:#0c1712; border:2px solid var(--acid2); border-radius:14px;
+  padding:10px 14px; font-weight:800; font-size:.98rem; text-align:center;
+  max-width:78%; white-space:normal; line-height:1.3;
+}
+.item.caughtGood{background:var(--acid2); border-color:var(--acid2); color:#03150a; animation:pop2 .35s ease forwards;}
+.item.caughtBad{background:var(--danger); border-color:var(--danger); color:#fff; animation:pop2 .35s ease forwards;}
+.item.missed{border-color:var(--danger); animation:pop2 .35s ease forwards;}
+@keyframes pop2{0%{transform:translateX(-50%) scale(1);opacity:1;}100%{transform:translateX(-50%) scale(1.4);opacity:0;}}
+
+.bins{display:flex; gap:10px;}
+.bin{
+  flex:1; padding:16px 8px; border:none; border-radius:14px; font-weight:900; font-size:.98rem;
+  color:#03150a; cursor:pointer; line-height:1.3;
+}
+.bin.left{background:var(--gold);}
+.bin.right{background:#7ec8ff;}
+.bin:active{transform:scale(.96);}
+
+.shake{animation:shake .3s ease;}
+@keyframes shake{
+  10%,90%{transform:translateX(-5px);} 30%,70%{transform:translateX(6px);} 50%{transform:translateX(-8px);}
+}
+.flash{position:fixed; inset:0; pointer-events:none; opacity:0; z-index:50;}
+.flash.hit{background:var(--danger); animation:flashout .3s ease;}
+.flash.win{background:var(--acid2); animation:flashout .3s ease;}
+@keyframes flashout{0%{opacity:.5;}100%{opacity:0;}}
+
+.dichotitle{text-align:center; font-size:.85rem; color:var(--dim); margin-bottom:10px; font-weight:700;}
+
+.center{text-align:center; padding:30px 10px;}
+.center h1{font-size:1.6rem; margin:0 0 6px;}
+.center h2{font-size:1.6rem; margin:0 0 8px;}
+.center p{opacity:.75; margin:0 0 22px; line-height:1.6;}
+.startbtn,.again{
+  padding:15px 30px; border:none; border-radius:14px; background:var(--acid2);
+  color:#03150a; font-weight:900; font-size:1.05rem; cursor:pointer;
+}
+</style>
+</head>
+<body>
+<div class="flash" id="flash"></div>
+<div class="wrap" id="app"></div>
+
+<script>
+// each item: dichotomy id links to its left/right labels; side 0=left 1=right
+const DICHOTOMIES = {
+  acid_base: {labels:["🔴 กรด","🔵 เบส"]},
+  exo_endo: {labels:["🔥 คายความร้อน","❄️ ดูดความร้อน"]},
+  redox: {labels:["⬆️ ตัวรีดิวซ์ (ให้ e-)","⬇️ ตัวออกซิไดซ์ (รับ e-)"]},
+  rate: {labels:["⚡ เพิ่มอัตราการเกิดปฏิกิริยา","🐢 ลดอัตราการเกิดปฏิกิริยา"]},
+};
+
+const ITEMS = [
+  {d:"acid_base", text:"HCl (กรดไฮโดรคลอริก)", side:0},
+  {d:"acid_base", text:"NaOH (โซเดียมไฮดรอกไซด์)", side:1},
+  {d:"acid_base", text:"CH₃COOH (กรดน้ำส้ม)", side:0},
+  {d:"acid_base", text:"NH₃ (แอมโมเนีย)", side:1},
+  {d:"acid_base", text:"H₂SO₄ (กรดกำมะถัน)", side:0},
+  {d:"acid_base", text:"Ca(OH)₂ (ปูนขาว)", side:1},
+  {d:"exo_endo", text:"การเผาไหม้เชื้อเพลิง", side:0},
+  {d:"exo_endo", text:"การละลายแอมโมเนียมไนเตรตในน้ำ", side:1},
+  {d:"exo_endo", text:"ปฏิกิริยากรด-เบสทั่วไป", side:0},
+  {d:"exo_endo", text:"การสลายตัวของแคลเซียมคาร์บอเนต", side:1},
+  {d:"exo_endo", text:"การเกิดสนิมเหล็ก", side:0},
+  {d:"redox", text:"Zn → Zn²⁺ + 2e⁻", side:0},
+  {d:"redox", text:"Cu²⁺ + 2e⁻ → Cu", side:1},
+  {d:"redox", text:"Fe → Fe²⁺ + 2e⁻", side:0},
+  {d:"redox", text:"O₂ + 4e⁻ → 2O²⁻", side:1},
+  {d:"rate", text:"เพิ่มอุณหภูมิ", side:0},
+  {d:"rate", text:"ลดความเข้มข้นของสารตั้งต้น", side:1},
+  {d:"rate", text:"บดสารให้เป็นผงละเอียด", side:0},
+  {d:"rate", text:"ใส่ตัวยับยั้งปฏิกิริยา (inhibitor)", side:1},
+  {d:"rate", text:"เติมตัวเร่งปฏิกิริยา", side:0},
+];
+
+let state = {};
+let currentEl = null;
+let resolveTimeout = null;
+
+function beep(freq,dur,type='sine'){
+  try{
+    const ctx = beep.ctx || (beep.ctx = new (window.AudioContext||window.webkitAudioContext)());
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type=type; o.frequency.value=freq; o.connect(g); g.connect(ctx.destination);
+    g.gain.setValueAtTime(.12, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001, ctx.currentTime+dur);
+    o.start(); o.stop(ctx.currentTime+dur);
+  }catch(e){}
+}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+function flash(kind){
+  const f=document.getElementById('flash');
+  f.className='flash '+(kind==='hit'?'hit':'win');
+  setTimeout(()=>{f.className='flash';},300);
+}
+
+function resetState(){
+  state = {
+    started:true, queue: shuffle(ITEMS.map((it,i)=>i)), qi:0,
+    score:0, lives:3, combo:0, maxCombo:0, fallMs:3200, resolved:false
+  };
+}
+
+function render(){
+  const app = document.getElementById('app');
+  if(!state.started){
+    app.innerHTML = `
+      <div class="center">
+        <h1>🧫 ห้องแล็บจับให้ทัน</h1>
+        <p>ของตกลงมาจากด้านบน แตะกล่องซ้ายหรือขวาให้ตรงหมวดหมู่ก่อนมันตกถึงพื้น! หมวดหมู่เปลี่ยนไปเรื่อยๆ ตอบผิดหรือปล่อยตกเสียชีวิต พลาด 3 ครั้งจบเกม</p>
+        <button class="startbtn" onclick="startGame()">เริ่มเล่น</button>
+      </div>`;
+    return;
+  }
+  if(state.lives<=0){
+    app.innerHTML = `
+      <div class="center">
+        <h2>💥 หมดชีวิต</h2>
+        <p>คะแนนรวม <strong>${state.score}</strong> · คอมโบสูงสุด x${state.maxCombo}</p>
+        <button class="again" onclick="startGame()">เล่นอีกครั้ง</button>
+      </div>`;
+    return;
+  }
+  if(state.qi>=state.queue.length){
+    app.innerHTML = `
+      <div class="center">
+        <h2>🎉 ครบทุกข้อ!</h2>
+        <p>คะแนนรวม <strong>${state.score}</strong> · คอมโบสูงสุด x${state.maxCombo}</p>
+        <button class="again" onclick="startGame()">เล่นอีกครั้ง</button>
+      </div>`;
+    return;
+  }
+
+  const item = ITEMS[state.queue[state.qi]];
+  const labels = DICHOTOMIES[item.d].labels;
+  app.innerHTML = `
+    <div class="hud">
+      <span>⭐ ${state.score}</span>
+      <span class="combo">🔥 x${state.combo}</span>
+      <span class="lives">${'❤️'.repeat(state.lives)}${'🤍'.repeat(3-state.lives)}</span>
+    </div>
+    <div class="field" id="field">
+      <div class="danger-line"></div>
+    </div>
+    <div class="bins">
+      <button class="bin left" onclick="resolve(0)">${labels[0]}</button>
+      <button class="bin right" onclick="resolve(1)">${labels[1]}</button>
+    </div>
+  `;
+  spawnItem(item);
+}
+
+function spawnItem(item){
+  state.resolved = false;
+  const field = document.getElementById('field');
+  const el = document.createElement('div');
+  el.className = 'item';
+  el.textContent = item.text;
+  field.appendChild(el);
+  currentEl = el;
+  const fieldH = field.clientHeight;
+  requestAnimationFrame(()=>{
+    el.style.transition = `top ${state.fallMs}ms linear`;
+    requestAnimationFrame(()=>{ el.style.top = (fieldH-56)+'px'; });
+  });
+  clearTimeout(resolveTimeout);
+  resolveTimeout = setTimeout(()=>{
+    if(!state.resolved) missItem();
+  }, state.fallMs+30);
+}
+
+function resolve(side){
+  if(state.resolved || !currentEl) return;
+  state.resolved = true;
+  clearTimeout(resolveTimeout);
+  const item = ITEMS[state.queue[state.qi]];
+  const good = side === item.side;
+  currentEl.style.transition = 'none';
+  if(good){
+    currentEl.classList.add('caughtGood');
+    state.combo += 1;
+    state.maxCombo = Math.max(state.maxCombo, state.combo);
+    state.score += 10 + (state.combo-1)*2;
+    state.fallMs = Math.max(1300, state.fallMs - 60);
+    beep(660,.12); beep(880,.1);
+    flash('win');
+  } else {
+    currentEl.classList.add('caughtBad');
+    state.combo = 0;
+    state.lives -= 1;
+    document.getElementById('field').classList.add('shake');
+    setTimeout(()=>document.getElementById('field').classList.remove('shake'),300);
+    beep(140,.22,'sawtooth');
+    flash('hit');
+  }
+  advance();
+}
+
+function missItem(){
+  if(state.resolved) return;
+  state.resolved = true;
+  if(currentEl) currentEl.classList.add('missed');
+  state.combo = 0;
+  state.lives -= 1;
+  document.getElementById('field').classList.add('shake');
+  setTimeout(()=>document.getElementById('field').classList.remove('shake'),300);
+  beep(140,.22,'sawtooth');
+  flash('hit');
+  advance();
+}
+
+function advance(){
+  setTimeout(()=>{
+    state.qi += 1;
+    render();
+  }, 420);
+}
+
+function startGame(){
+  resetState();
+  render();
+}
+
+render();
+</script>
+</body>
+</html>
